@@ -1,7 +1,7 @@
 {-# LANGUAGE QuasiQuotes, GADTs, ScopedTypeVariables, RecursiveDo, OverloadedStrings #-}
 
-import FakeWebFramework
-import UrlPath
+import Geordi
+import Geordi.UrlPath
 import Data.IORef
 import Data.Maybe
 import Data.Monoid
