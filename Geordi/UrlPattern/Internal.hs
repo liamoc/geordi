@@ -24,6 +24,7 @@ data UrlSegment :: Method -> * -> SegmentType * -> * where
    File      :: T.Text -> UrlSegment POST f (FileParam (FileInfo f))
    FileOpt   :: T.Text -> UrlSegment POST f (FileParam (Maybe (FileInfo f )))
    Str       :: T.Text -> UrlSegment m f (StringSeg)
+   Star      :: (Param a) => UrlSegment m f (UrlParam [a])
    StarQ     :: (Param a) => UrlSegment m f (QueryParam (M.Map T.Text [a]))
    StarP     :: (Param a) => UrlSegment POST f (PostParam (M.Map T.Text [a]))
    StarC     :: (Param a) => UrlSegment m f (CookieParam (M.Map T.Text [a]))
@@ -65,7 +66,8 @@ allPosted      :: Param a => UrlPattern POST f '[PostParam (M.Map T.Text [a])]
 allPosted      = (:/ Empty) $ StarP
 allFile        :: UrlPattern POST f '[FileParam (M.Map T.Text [FileInfo f])]
 allFile        = (:/ Empty) $ StarF
-
+splat          :: Param a => UrlPattern m f '[UrlParam [a]]
+splat          = (:/ Empty) $ Star
 
 
 (//) :: UrlPattern m f a -> UrlPattern m f b -> UrlPattern m f (a :++: b)
@@ -87,7 +89,8 @@ linkUrl = link' [] []
     link' acc qs (QueryOpt x :/ p) = maybe (link' acc qs p) 
                                            (\v -> link' acc ((x, render v):qs) p) 
     link' acc qs (StarQ :/ p) = \m -> let stuff = concatMap (uncurry $ \a b -> map ((a,) . render) b) $ M.toList m 
-                                       in link' acc (stuff ++ qs) p 
+                                       in link' acc (reverse stuff ++ qs) p 
+    link' acc qs (Star  :/ p) = \m -> link' (reverse (map render m) ++ acc) qs p                                   
     link' acc qs (Cookie _    :/ p) = link' acc qs  p
     link' acc qs (Posted _    :/ p) = link' acc qs  p
     link' acc qs (PostedOpt _ :/ p) = link' acc qs  p
@@ -97,6 +100,19 @@ linkUrl = link' [] []
     link' acc qs (StarP       :/ p) = link' acc qs p
     link' acc qs (StarC       :/ p) = link' acc qs p
     link' acc qs (StarF       :/ p) = link' acc qs p
+
+
+-- | Boolean matching predicate. Note that this only checks the actual path component of the URL pattern. 
+--   Query string and other parameters are ignored.
+matches :: UrlPattern m f ts -- ^ Pattern to match
+        -> [T.Text]          -- ^ Url pieces
+        -> Bool
+matches (Str x :/ ps) (y:ys) = (x == y) && (ps `matches` ys)
+matches (Param :/ ps) (_:ys) = ps `matches` ys
+matches (Star  :/ ps) ys     = not . null $ dropWhile (not . matches ps) (tails ys)
+matches (_     :/ ps) ys     = ps `matches` ys
+matches  Empty        []     = True
+matches  Empty        _      = False
 
 matchUrl :: M.Map T.Text [T.Text] -- ^ Query string Parameters 
          -> M.Map T.Text [T.Text] -- ^ Request body parameters 
@@ -137,7 +153,10 @@ matchUrl q p c f xs     (StarQ       :/ ps) h = matchUrl q p c f xs ps (h $ M.ma
 matchUrl q p c f xs     (StarP       :/ ps) h = matchUrl q p c f xs ps (h $ M.map (catMaybes . map parse) p)
 matchUrl q p c f xs     (StarC       :/ ps) h = matchUrl q p c f xs ps (h $ M.map (catMaybes . map parse) c)
 matchUrl q p c f xs     (StarF       :/ ps) h = matchUrl q p c f xs ps (h $ f)
+matchUrl q p c f xs     (Star        :/ ps) h = do (glob,rest) <- find (matches ps . snd) (inits xs `zip` tails xs)
+                                                   matchUrl q p c f rest ps (h $ catMaybes $ map parse glob)
 matchUrl _ _ _ _ []     (Empty           ) h = Just h 
 matchUrl _ _ _ _ _      (Empty           ) _ = Nothing
 matchUrl _ _ _ _ []     _                  _ = Nothing
+
 

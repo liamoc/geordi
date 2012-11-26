@@ -7,6 +7,7 @@ module Geordi.UrlPattern ( -- * The 'UrlPattern' monoid
                            -- * URL component matchers
                          , str 
                          , param
+                         , splat
                            -- * Query String Matchers
                          , query
                          , optionalQuery
