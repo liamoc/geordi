@@ -6,7 +6,6 @@ import Test.Framework.Providers.QuickCheck2
 import Tests.Util.TypeEquality
 import Control.Applicative
 import qualified Data.Text as T
-import qualified Data.ByteString.Lazy as L
 import Geordi.FileInfo
 import Geordi.Param
 import Geordi.UrlPattern.Internal
@@ -35,11 +34,8 @@ urlString = (:) <$> (elements str) <*> (listOf $ elements str)
 instance Arbitrary (Exists TestParam) where
   arbitrary = elements allParams
 
-deriving instance Show (FileOrStream f)
-
-instance Show (Exists FileOrStream) where show (ExI x) = "ExI " ++ show x
-
 data SegType :: * -> SegmentType * -> * where
+  StrW       :: SegType f (StringSeg)
   UrlW       :: TestParam x -> SegType f (UrlParam x)
   CookieW    :: TestParam x -> SegType f (CookieParam x)                                
   CookieOptW :: TestParam x -> SegType f (CookieParam (Maybe x))
@@ -47,11 +43,8 @@ data SegType :: * -> SegmentType * -> * where
   QueryOptW  :: TestParam x -> SegType f (QueryParam (Maybe x))
   PostOptW   :: TestParam x -> SegType f (PostParam (Maybe x))
   PostW      :: TestParam x -> SegType f (PostParam x)
-  FileW      :: SegType FilePath (FileParam (FileInfo FilePath))
-  StreamW    :: SegType L.ByteString (FileParam (FileInfo L.ByteString))
-  FileOptW   :: SegType FilePath (FileParam (Maybe (FileInfo FilePath)))
-  StreamOptW :: SegType L.ByteString (FileParam (Maybe (FileInfo L.ByteString)))
-  StrW       :: SegType f (StringSeg)
+  FileW      :: SegType f (FileParam (FileInfo f))
+  FileOptW   :: SegType f (FileParam (Maybe (FileInfo f)))
 
 deriving instance Show (SegType f a)
 
@@ -65,31 +58,24 @@ instance Show (Exists2 SegList) where show (ExI2 l) = "ExI2 " ++ show l
 
 instance Show (Exists (UrlPattern m f)) where show (ExI l) = "ExI " ++ show l
 
-data FileOrStream :: * -> * where
-  IsFile :: FileOrStream FilePath
-  IsStream :: FileOrStream L.ByteString
+segtypes :: Gen (Exists (SegType f))
+segtypes = do ExI p <- arbitrary 
+              elements $ [ ExI $ UrlW p
+                         , ExI $ CookieW p
+                         , ExI $ QueryW p
+                         , ExI StrW 
+                         , ExI $ PostW p
+                         , ExI $ QueryOptW p
+                         , ExI $ PostOptW p
+                         , ExI $ CookieOptW p
+                         , ExI FileW  
+                         , ExI FileOptW 
+                         ]
 
-instance Arbitrary (Exists FileOrStream) where
-  arbitrary = elements [ExI IsFile, ExI IsStream]
-
-segtypes :: FileOrStream f -> Gen (Exists (SegType f))
-segtypes fos = do ExI p <- arbitrary 
-                  elements $ [ ExI $ UrlW p
-                             , ExI $ CookieW p
-                             , ExI $ QueryW p
-                             , ExI StrW 
-                             , ExI $ PostW p
-                             , ExI $ QueryOptW p
-                             , ExI $ PostOptW p
-                             , ExI $ CookieOptW p
-                             ] ++ case fos of 
-                                    IsFile   -> [ ExI FileW  , ExI FileOptW   ]
-                                    IsStream -> [ ExI StreamW, ExI StreamOptW ]
-
-seglists :: FileOrStream f -> Gen (Exists (SegList f))
-seglists fos = sized $ go
+seglists :: Gen (Exists (SegList f))
+seglists = sized $ go
     where go 0 = return $ ExI Nil
-          go n = do ExI x  <- segtypes fos
+          go n = do ExI x  <- segtypes
                     ExI xs <- go $ n - 1 
                     return $ ExI (Cons x xs)
 
@@ -103,19 +89,17 @@ urlsegs (PostW (T {})     ) = Posted    . T.pack <$> urlString
 urlsegs (CookieW (T {})   ) = Cookie    . T.pack <$> urlString
 urlsegs (CookieOptW (T {})) = CookieOpt . T.pack <$> urlString
 urlsegs (FileOptW         ) = FileOpt   . T.pack <$> urlString       
-urlsegs (StreamOptW       ) = StreamOpt . T.pack <$> urlString       
 urlsegs (FileW            ) = File      . T.pack <$> urlString       
-urlsegs (StreamW          ) = Stream    . T.pack <$> urlString       
 
 urlpatterns :: SegList f a -> Gen (UrlPattern POST f a)
 urlpatterns Nil = return Empty
 urlpatterns (Cons r rs) = liftA2 (:/) (urlsegs r) (urlpatterns rs)
 
 instance Arbitrary (Exists2 SegList) where
-   arbitrary = arbitrary >>= \(ExI f) -> seglists f >>= \(ExI x) -> return $ ExI2 x
+   arbitrary = seglists >>= \(ExI x) -> return $ ExI2 x
 
 instance Arbitrary (Exists2 (UrlPattern POST)) where
-  arbitrary = arbitrary >>= \(ExI f) -> seglists f >>= \(ExI x) -> ExI2 <$> urlpatterns x
+  arbitrary = seglists >>= \(ExI x) -> ExI2 <$> urlpatterns x
 
 
 type_concat_assoc :: SegList f a -> SegList f b -> SegList f c ->  ((a :++: b) :++: c) :==: (a :++: (b :++: c))
@@ -129,10 +113,10 @@ type_concat_rident (Cons r rs) = cong (type_concat_rident rs)
 tests :: Test
 tests = testGroup "Geordi.UrlPattern" [
           testGroup "(UrlPattern, (//), Empty) forms a monoid" [
-            testProperty "associativity" $ \(ExI f) ->
-              forAll (seglists f) $ \(ExI a') ->
-              forAll (seglists f) $ \(ExI b') ->
-              forAll (seglists f) $ \(ExI c') -> 
+            testProperty "associativity" $
+              forAll (seglists ) $ \(ExI a') ->
+              forAll (seglists ) $ \(ExI b') ->
+              forAll (seglists ) $ \(ExI c') -> 
               forAll (urlpatterns a') $ \a -> 
               forAll (urlpatterns b') $ \b ->
               forAll (urlpatterns c') $ \c ->

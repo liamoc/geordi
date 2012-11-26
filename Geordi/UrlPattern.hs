@@ -19,15 +19,11 @@ module Geordi.UrlPattern ( -- * The 'UrlPattern' monoid
                            -- * File upload matchers
                          , file
                          , optionalFile
-                         , stream
-                         , optionalStream
                            -- * Type indices and families
                          , module Geordi.UrlPattern.Types
                            -- * Matching and linking
                          , linkUrl
                          , matchUrl
-                           -- * Miscellaneous
-                         , fileBackend
                          ) where
 
 import Geordi.UrlPattern.Internal

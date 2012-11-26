@@ -1,19 +1,17 @@
-{-# LANGUAGE GADTs, KindSignatures, DataKinds, TypeOperators, OverloadedStrings, RankNTypes #-}
+{-# LANGUAGE GADTs, KindSignatures, DataKinds, TypeOperators, OverloadedStrings, RankNTypes, PatternGuards #-}
 module Geordi.UrlPattern.Internal where
 
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.ByteString.Lazy as L
 import Data.List
-
+import qualified Data.Map as M
 import Geordi.FileInfo
 import Geordi.Param
 import Geordi.UrlPattern.Types
 
 
 data Method = GET | POST
-
-
 
 data UrlSegment :: Method -> * -> SegmentType * -> * where
    Param    :: (Param a) => UrlSegment m f (UrlParam a)
@@ -23,10 +21,8 @@ data UrlSegment :: Method -> * -> SegmentType * -> * where
    QueryOpt :: (Param a) => T.Text -> UrlSegment m f (QueryParam (Maybe a))
    PostedOpt :: (Param a) => T.Text -> UrlSegment POST f (PostParam (Maybe a))
    CookieOpt :: (Param a) => T.Text -> UrlSegment m f (CookieParam (Maybe a))
-   File      :: T.Text -> UrlSegment POST FilePath (FileParam (FileInfo FilePath))
-   Stream    :: T.Text -> UrlSegment POST L.ByteString (FileParam (FileInfo L.ByteString))
-   FileOpt   :: T.Text -> UrlSegment POST FilePath (FileParam (Maybe (FileInfo FilePath)))
-   StreamOpt :: T.Text -> UrlSegment POST L.ByteString (FileParam (Maybe (FileInfo L.ByteString)))
+   File      :: T.Text -> UrlSegment POST f (FileParam (FileInfo f))
+   FileOpt   :: T.Text -> UrlSegment POST f (FileParam (Maybe (FileInfo f )))
    Str       :: T.Text -> UrlSegment m f (StringSeg)
 
 infixr 7 :/
@@ -47,20 +43,16 @@ cookie         :: Param p => T.Text ->  UrlPattern m f '[CookieParam p]
 cookie         = (:/ Empty) . Cookie
 param          :: Param p => UrlPattern m f '[UrlParam p]
 param          = (Param :/ Empty) 
-file           :: T.Text -> UrlPattern POST FilePath '[FileParam (FileInfo FilePath)]
+file           :: T.Text -> UrlPattern POST f '[FileParam (FileInfo f)]
 file           = (:/ Empty) . File
-stream         :: T.Text -> UrlPattern POST L.ByteString '[FileParam (FileInfo L.ByteString)]
-stream         = (:/ Empty) . Stream
 optionalQuery  :: Param p => T.Text ->  UrlPattern m f '[QueryParam (Maybe p)]
 optionalQuery  = (:/ Empty) . QueryOpt
 optionalCookie :: Param p => T.Text -> UrlPattern m f '[CookieParam (Maybe p)]
 optionalCookie = (:/ Empty) . CookieOpt
 optionalPosted :: Param p => T.Text -> UrlPattern POST f '[PostParam (Maybe p)]
 optionalPosted = (:/ Empty) . PostedOpt
-optionalFile   :: T.Text -> UrlPattern POST FilePath '[FileParam (Maybe (FileInfo FilePath))]
+optionalFile   :: T.Text -> UrlPattern POST f '[FileParam (Maybe (FileInfo f))]
 optionalFile   = (:/ Empty) . FileOpt
-optionalStream :: T.Text -> UrlPattern POST L.ByteString '[FileParam (Maybe (FileInfo L.ByteString))]
-optionalStream = (:/ Empty) . StreamOpt
 
 (//) :: UrlPattern m f a -> UrlPattern m f b -> UrlPattern m f (a :++: b)
 Empty     // y = y
@@ -85,52 +77,43 @@ linkUrl = link' [] []
     link' acc qs (PostedOpt _ :/ p) = link' acc qs  p
     link' acc qs (CookieOpt _ :/ p) = link' acc qs  p
     link' acc qs (File _      :/ p) = link' acc qs p
-    link' acc qs (Stream _    :/ p) = link' acc qs p
     link' acc qs (FileOpt _   :/ p) = link' acc qs p
-    link' acc qs (StreamOpt _ :/ p) = link' acc qs p
 
-matchUrl :: (T.Text -> Maybe T.Text) -- ^ Lookup query Parameters 
-         -> (T.Text -> Maybe T.Text) -- ^ Lookup request body parameters 
-         -> (T.Text -> Maybe T.Text) -- ^ Lookup cookie parameters
-         -> (T.Text -> Maybe (FileInfo f)) -- ^ Lookup uploaded files
+matchUrl :: M.Map T.Text [T.Text] -- ^ Query string Parameters 
+         -> M.Map T.Text [T.Text] -- ^ Request body parameters 
+         -> M.Map T.Text [T.Text] -- ^ Cookie parameters
+         -> M.Map T.Text [FileInfo f] -- ^ Uploaded files
          -> [T.Text] -- ^ URL pieces (before query string)
          -> UrlPattern m f ts  -- ^ Url pattern to match against
          -> (Types ts :--> a) -- ^ Function to apply parsed results to
          -> Maybe a -- ^ Resultant value (iff the pattern matches)
-matchUrl q p c f (x:xs) (Str x'     :/ ps) h = if x == x' then matchUrl q p c f xs ps h
-                                                       else Nothing
-matchUrl q p c f (x:xs) (Param      :/ ps) h = parse x 
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (Query x    :/ ps) h = q x >>= parse
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (QueryOpt x :/ ps) h = maybe (Just Nothing) (fmap Just . parse) (q x) 
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (Posted x    :/ ps) h = p x >>= parse
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (PostedOpt x :/ ps) h = maybe (Just Nothing) (fmap Just . parse) (p x) 
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (Cookie x    :/ ps) h = c x >>= parse
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (CookieOpt x :/ ps) h = maybe (Just Nothing) (fmap Just . parse) (c x) 
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (File x    :/ ps) h = f x 
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (FileOpt x :/ ps) h = maybe (Just Nothing) (Just . Just) (f x) 
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (Stream x  :/ ps) h = f x 
-                                          >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (StreamOpt x :/ ps) h = maybe (Just Nothing) (Just . Just) (f x) 
-                                          >>= matchUrl q p c f xs ps . h 
+matchUrl q p c f (x:xs) (Str x'      :/ ps) h = if x == x' then matchUrl q p c f xs ps h
+                                                           else Nothing
+matchUrl q p c f (x:xs) (Param       :/ ps) h = parse x >>= matchUrl q p c f xs ps . h 
+matchUrl q p c f xs     (Query x     :/ ps) h 
+   | (val:vals) <- M.findWithDefault [] x q = parse val >>= matchUrl (M.adjust (const vals) x q) p c f xs ps . h 
+   | otherwise                              = Nothing
+matchUrl q p c f xs     (QueryOpt x  :/ ps) h 
+   | (val:vals) <- M.findWithDefault [] x q = parse val >>= matchUrl (M.adjust (const vals) x q) p c f xs ps . h . Just 
+   | otherwise                              = matchUrl q p c f xs ps (h Nothing)
+matchUrl q p c f xs     (Posted x    :/ ps) h 
+   | (val:vals) <- M.findWithDefault [] x p = parse val >>= matchUrl q (M.adjust (const vals) x p) c f xs ps . h 
+   | otherwise                              = Nothing
+matchUrl q p c f xs     (PostedOpt x :/ ps) h 
+   | (val:vals) <- M.findWithDefault [] x p = parse val >>= matchUrl q (M.adjust (const vals) x p) c f xs ps . h . Just
+   | otherwise                              = matchUrl q p c f xs ps (h Nothing) 
+matchUrl q p c f xs     (Cookie x    :/ ps) h 
+   | (val:vals) <- M.findWithDefault [] x c = parse val >>= matchUrl q p (M.adjust (const vals) x c) f xs ps . h 
+   | otherwise                              = Nothing
+matchUrl q p c f xs     (CookieOpt x :/ ps) h 
+   | (val:vals) <- M.findWithDefault [] x c = parse val >>= matchUrl q p (M.adjust (const vals) x c) f xs ps . h . Just
+   | otherwise                              = matchUrl q p c f xs ps (h Nothing) 
+matchUrl q p c f xs     (File x      :/ ps) h 
+   | (val:vals) <- M.findWithDefault [] x f = matchUrl q p c (M.adjust (const vals) x f) xs ps (h val)
+   | otherwise                              = Nothing
+matchUrl q p c f xs     (FileOpt x   :/ ps) h 
+   | (val:vals) <- M.findWithDefault [] x f = matchUrl q p c (M.adjust (const vals) x f) xs ps (h $ Just val)
+   | otherwise                              = matchUrl q p c f xs ps (h Nothing) 
 matchUrl _ _ _ _ []     (Empty           ) h = Just h 
 matchUrl _ _ _ _ _      _                  _ = Nothing
-
--- | Mostly internal, allows one to switch on which file back-end is in use. 
-fileBackend :: b L.ByteString -> b FilePath -> (forall p. b p) -> UrlPattern m f ts -> b f
-fileBackend _   fil _   (File _      :/ _ ) = fil
-fileBackend _   fil _   (FileOpt _   :/ _ ) = fil
-fileBackend srm _   _   (Stream _    :/ _ ) = srm
-fileBackend srm _   _   (StreamOpt _ :/ _ ) = srm
-fileBackend srm fil nul (_           :/ ps) = fileBackend srm fil nul ps
-fileBackend _   _   nul Empty               = nul
-
 

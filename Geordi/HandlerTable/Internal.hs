@@ -7,23 +7,25 @@ import Network.Wai
 import Control.Applicative
 import Control.Arrow
 import Geordi.Handler
+import Geordi.FileBackend
 import Control.Monad.Trans.Resource
 import qualified Network.HTTP.Types.Status as H
 
 data Exists :: (x -> *) -> * where
   ExI :: a b -> Exists a
 
-newtype HandlerTable = HandlerTable [Exists Handler] deriving (Monoid)
+newtype HandlerTable f = HandlerTable [Exists (Handler f)] deriving (Monoid)
 
-singleton :: Handler hs -> HandlerTable
+singleton :: Handler f hs -> HandlerTable f
 singleton = HandlerTable . (:[]) . ExI
 
-asApplication :: HandlerTable -> Application
-asApplication (HandlerTable x) = asApplication' initialResponse x
-  where asApplication' :: Response -> [Exists Handler] -> Request -> ResourceT IO Response
+asApplication :: HandlerTable f -> FileBackend f -> Application
+asApplication (HandlerTable x) backend request 
+  = processRequest request backend >>= asApplication' initialResponse x
+  where asApplication' :: Response -> [Exists (Handler f)] -> ProcessedRequest f -> ResourceT IO Response
         asApplication' res [] _ = return $ res
         asApplication' res (ExI h : hs ) req 
-           = matchWai h req >>= \case  
+           = case matchWai h req of
                Nothing  -> asApplication' res hs req
                Just act -> second ($ res) <$> runHandlerM act req >>= \case 
                               (Continue , res') -> asApplication' res' hs req

@@ -10,8 +10,9 @@ import Geordi.UrlPattern
 import Geordi.HandlerTable
 import Geordi.Handler
 import Geordi.TableBuilder
+import Geordi.FileBackend
 
 import Network.Wai.Handler.Warp
 
-geordi :: Int -> TableBuilder '[] '[] () ->  IO ()
-geordi p = run p . buildApplication
+geordi :: Int -> TableBuilder '[] '[] FilePath () ->  IO ()
+geordi p = run p . buildApplication tempFileBackend

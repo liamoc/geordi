@@ -10,6 +10,8 @@ module Geordi.Handler ( -- * The Handler Type
                       , call
                       , link
                         -- * Low-level WAI interface
+                      , ProcessedRequest (..)
+                      , processRequest
                       , matchWai
                       ) where
 
@@ -27,19 +29,20 @@ import qualified Network.HTTP.Types.URI    as H
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.HTTP.Types.Method as H
 import qualified Data.Text as T
+import qualified Data.Map  as M
 import qualified Data.Text.Encoding as T
 
 import qualified Geordi.FileInfo as GF 
 import Geordi.UrlPattern
 import Geordi.FileBackend
 
-newtype HandlerM x = HandlerM (ReaderT Request (WriterT (Endo Response) (ResourceT IO)) x)
+newtype HandlerM f x = HandlerM (ReaderT (ProcessedRequest f) (WriterT (Endo Response) (ResourceT IO)) x)
                    deriving ( Monad
                             , Functor
                             , Applicative
                             , MonadIO
                             , MonadWriter (Endo Response)
-                            , MonadReader Request
+                            , MonadReader (ProcessedRequest f)
                             , MonadResource
                             , MonadUnsafeIO
                             , MonadActive 
@@ -47,7 +50,7 @@ newtype HandlerM x = HandlerM (ReaderT Request (WriterT (Endo Response) (Resourc
                             )
 
 
-runHandlerM :: HandlerM r -> Request -> ResourceT IO (r , Response -> Response) 
+runHandlerM :: HandlerM f r -> ProcessedRequest f -> ResourceT IO (r , Response -> Response) 
 runHandlerM (HandlerM x) =  fmap (second appEndo) . runWriterT . runReaderT x
 
 data HandlerStatus = Continue
@@ -57,34 +60,48 @@ data MethodSingleton :: Method -> * where
   MethodGet  :: MethodSingleton GET
   MethodPost :: MethodSingleton POST
 
-data Handler :: [SegmentType *] -> * where
+data Handler :: * -> [SegmentType *] -> * where
   Handler :: { method  :: MethodSingleton m
-             , backend :: FileBackend f 
              , urlPat  :: UrlPattern m f ts 
-             , action  :: (Types ts :--> HandlerM HandlerStatus) 
-             } -> Handler ts
+             , action  :: (Types ts :--> HandlerM f HandlerStatus) 
+             } -> Handler f ts
 
-link :: Handler ts -> Types (LinkSegments ts) :--> T.Text
+link :: Handler f ts -> Types (LinkSegments ts) :--> T.Text
 link (Handler {urlPat}) = linkUrl urlPat
 
-call :: Handler ts -> Types ts :--> HandlerM HandlerStatus
+call :: Handler f ts -> Types ts :--> HandlerM f HandlerStatus
 call = action
 
-matchWai :: Handler ts -> Request -> ResourceT IO (Maybe (HandlerM HandlerStatus))
-matchWai (Handler {..}) req 
-  | methodString method == requestMethod req 
-     = let queries = flip lookup $ map (second $ fromMaybe "") $ H.queryToQueryText $ queryString req
-           cookies = maybe (const Nothing) (flip lookup . parseCookiesText) $ lookup H.hCookie $ requestHeaders $ req
-           (FB backend') = backend 
-        in do (posts, files) <- if requestMethod req == H.methodPost
-                                 then do (params, files) <- parseRequestBody backend' req
-                                         return ( flip lookup . map (T.decodeUtf8 *** T.decodeUtf8)  $ params
-                                                , flip lookup . map (T.decodeUtf8 *** toOurFileInfo) $ files
-                                                )
-                                 else return (const Nothing, const Nothing)
-              return $ matchUrl queries posts cookies files (pathInfo req) urlPat action
-  | otherwise = return Nothing
+
+data ProcessedRequest f = ProcessedRequest { queries   :: M.Map T.Text [T.Text]
+                                           , cookies   :: M.Map T.Text [T.Text] 
+                                           , posts     :: M.Map T.Text [T.Text]
+                                           , files     :: M.Map T.Text [GF.FileInfo f] 
+                                           , urlpieces :: [T.Text]
+                                           , methodStr :: H.Method
+                                           }
+
+processRequest :: Request -> FileBackend f -> ResourceT IO (ProcessedRequest f)
+processRequest req (FB backend') = do
+   (posts, files) <- if requestMethod req == H.methodPost
+                      then do (params, files) <- parseRequestBody backend' req
+                              return ( M.fromListWith (++) . map (T.decodeUtf8 *** ((:[]) . T.decodeUtf8))  $ params
+                                     , M.fromListWith (++) . map (T.decodeUtf8 *** ((:[]) . toOurFileInfo)) $ files
+                                     )
+                      else return (M.empty, M.empty)
+   return $ ProcessedRequest { queries = M.fromListWith (++) $ map (second $ (:[]) . fromMaybe "") $ H.queryToQueryText $ queryString req
+                             , cookies = M.fromListWith (++) $ map (second (:[])) $ fromMaybe [] $ fmap parseCookiesText $ lookup H.hCookie $ requestHeaders req
+                             , urlpieces = pathInfo req 
+                             , posts = posts
+                             , files = files
+                             , methodStr = requestMethod req
+                             }
+  where toOurFileInfo (FileInfo {..}) = GF.FileInfo fileName fileContentType fileContent
+
+matchWai :: Handler f ts -> ProcessedRequest f -> Maybe (HandlerM f HandlerStatus)
+matchWai (Handler {..}) (ProcessedRequest {..}) 
+  | methodString method == methodStr = matchUrl queries posts cookies files urlpieces urlPat action
+  | otherwise                        = Nothing
   where methodString MethodGet  = H.methodGet
         methodString MethodPost = H.methodPost
-        toOurFileInfo (FileInfo {..}) = GF.FileInfo fileName fileContentType fileContent
 
