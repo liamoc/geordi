@@ -67,6 +67,11 @@ post :: UrlPattern POST f ts -- ^ Url pattern
      -> (Types ((prefix :++: ts) :++: suffix) :--> HandlerM f HandlerStatus) -- ^ Handler action
      -> TableBuilder prefix suffix f (Handler f ((prefix :++: ts) :++: suffix))
 post = handle MethodPost
+-- | Simply 'handle' 'MethodAny'
+request :: UrlPattern AnyMethod f ts -- ^ Url pattern
+        -> (Types ((prefix :++: ts) :++: suffix) :--> HandlerM f HandlerStatus) -- ^ Handler action
+        -> TableBuilder prefix suffix f (Handler f ((prefix :++: ts) :++: suffix))
+request = handle MethodAny
 
 buildTable :: TableBuilder '[] '[] f r -> (r, HandlerTable f)
 buildTable (TableBuilder x) = runWriter

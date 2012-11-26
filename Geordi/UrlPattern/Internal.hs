@@ -11,7 +11,7 @@ import Geordi.UrlPattern.Types
 import Data.Maybe
 
 
-data Method = GET | POST
+data Method = GET | POST | AnyMethod
 
 data UrlSegment :: Method -> * -> SegmentType * -> * where
    Param    :: (Param a) => UrlSegment m f (UrlParam a)

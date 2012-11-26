@@ -6,7 +6,13 @@ module Geordi.Handler ( -- * The Handler Type
                         -- * Handler Monad
                       , HandlerM (..)
                       , runHandlerM
-                        -- * Calling and Linking
+                        -- * Control flow handler actions
+                      , done
+                      , continue
+                        -- * Response primitives
+                      , set
+                      , respond
+                        -- * Calling and Linking Handlers
                       , call
                       , link
                         -- * Low-level WAI interface
@@ -59,6 +65,9 @@ data HandlerStatus = Continue
 data MethodSingleton :: Method -> * where
   MethodGet  :: MethodSingleton GET
   MethodPost :: MethodSingleton POST
+  MethodAny  :: MethodSingleton AnyMethod
+
+
 
 data Handler :: * -> [SegmentType *] -> * where
   Handler :: { method  :: MethodSingleton m
@@ -72,6 +81,17 @@ link (Handler {urlPat}) = linkUrl urlPat
 call :: Handler f ts -> Types ts :--> HandlerM f HandlerStatus
 call = action
 
+done :: HandlerM f HandlerStatus
+done = return Done
+
+continue :: HandlerM f HandlerStatus
+continue = return Continue
+
+set :: (Response -> Response) -> HandlerM f ()
+set = tell . Endo
+
+respond :: (Response -> Response) -> HandlerM f HandlerStatus
+respond e = set e >> done
 
 data ProcessedRequest f = ProcessedRequest { queries   :: M.Map T.Text [T.Text]
                                            , cookies   :: M.Map T.Text [T.Text] 
@@ -99,9 +119,11 @@ processRequest req (FB backend') = do
   where toOurFileInfo (FileInfo {..}) = GF.FileInfo fileName fileContentType fileContent
 
 matchWai :: Handler f ts -> ProcessedRequest f -> Maybe (HandlerM f HandlerStatus)
-matchWai (Handler {..}) (ProcessedRequest {..}) 
-  | methodString method == methodStr = matchUrl queries posts cookies files urlpieces urlPat action
-  | otherwise                        = Nothing
+matchWai (Handler {..}) (ProcessedRequest {..}) = case method of
+      MethodAny                       -> matchUrl queries posts cookies files urlpieces urlPat action
+      x | methodString x == methodStr -> matchUrl queries posts cookies files urlpieces urlPat action
+      _                               -> Nothing
   where methodString MethodGet  = H.methodGet
         methodString MethodPost = H.methodPost
+        methodString _          = error "Shouldn't be called on MethodAny"
 

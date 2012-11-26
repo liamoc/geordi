@@ -8,6 +8,7 @@ module Geordi.TableBuilder ( -- * The 'TableBuilder' Type
                            , handle
                            , get
                            , post
+                           , request
                              -- * Running the builder
                            , buildTable
                            , buildApplication  ) where
