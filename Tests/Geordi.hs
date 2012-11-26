@@ -1,7 +1,7 @@
 module Main where
 
-import Tests.Geordi.UrlPath as UrlPath
+import Tests.Geordi.UrlPattern as UrlPattern
 import Test.Framework
 
 
-main = defaultMain [UrlPath.tests]
+main = defaultMain [UrlPattern.tests]
