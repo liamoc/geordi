@@ -1,14 +1,14 @@
-{-# LANGUAGE GADTs, KindSignatures, DataKinds, TypeOperators, OverloadedStrings, RankNTypes, PatternGuards #-}
+{-# LANGUAGE GADTs, KindSignatures, DataKinds, TypeOperators, OverloadedStrings, RankNTypes, PatternGuards, TupleSections #-}
 module Geordi.UrlPattern.Internal where
 
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
-import qualified Data.ByteString.Lazy as L
 import Data.List
 import qualified Data.Map as M
 import Geordi.FileInfo
 import Geordi.Param
 import Geordi.UrlPattern.Types
+import Data.Maybe
 
 
 data Method = GET | POST
@@ -24,6 +24,10 @@ data UrlSegment :: Method -> * -> SegmentType * -> * where
    File      :: T.Text -> UrlSegment POST f (FileParam (FileInfo f))
    FileOpt   :: T.Text -> UrlSegment POST f (FileParam (Maybe (FileInfo f )))
    Str       :: T.Text -> UrlSegment m f (StringSeg)
+   StarQ     :: (Param a) => UrlSegment m f (QueryParam (M.Map T.Text [a]))
+   StarP     :: (Param a) => UrlSegment POST f (PostParam (M.Map T.Text [a]))
+   StarC     :: (Param a) => UrlSegment m f (CookieParam (M.Map T.Text [a]))
+   StarF     :: UrlSegment POST f (FileParam (M.Map T.Text [FileInfo f]))
 
 infixr 7 :/
 -- Indexed by the type of a handler for that particular UrlPattern
@@ -53,6 +57,16 @@ optionalPosted :: Param p => T.Text -> UrlPattern POST f '[PostParam (Maybe p)]
 optionalPosted = (:/ Empty) . PostedOpt
 optionalFile   :: T.Text -> UrlPattern POST f '[FileParam (Maybe (FileInfo f))]
 optionalFile   = (:/ Empty) . FileOpt
+allQuery       :: Param a => UrlPattern m f '[QueryParam (M.Map T.Text [a])]
+allQuery       = (:/ Empty) $ StarQ
+allCookie      :: Param a => UrlPattern m f '[CookieParam (M.Map T.Text [a])]
+allCookie      = (:/ Empty) $ StarC
+allPosted      :: Param a => UrlPattern POST f '[PostParam (M.Map T.Text [a])]
+allPosted      = (:/ Empty) $ StarP
+allFile        :: UrlPattern POST f '[FileParam (M.Map T.Text [FileInfo f])]
+allFile        = (:/ Empty) $ StarF
+
+
 
 (//) :: UrlPattern m f a -> UrlPattern m f b -> UrlPattern m f (a :++: b)
 Empty     // y = y
@@ -72,12 +86,17 @@ linkUrl = link' [] []
     link' acc qs (Query x    :/ p) = \v -> link' acc ((x, render v):qs) p
     link' acc qs (QueryOpt x :/ p) = maybe (link' acc qs p) 
                                            (\v -> link' acc ((x, render v):qs) p) 
+    link' acc qs (StarQ :/ p) = \m -> let stuff = concatMap (uncurry $ \a b -> map ((a,) . render) b) $ M.toList m 
+                                       in link' acc (stuff ++ qs) p 
     link' acc qs (Cookie _    :/ p) = link' acc qs  p
     link' acc qs (Posted _    :/ p) = link' acc qs  p
     link' acc qs (PostedOpt _ :/ p) = link' acc qs  p
     link' acc qs (CookieOpt _ :/ p) = link' acc qs  p
     link' acc qs (File _      :/ p) = link' acc qs p
     link' acc qs (FileOpt _   :/ p) = link' acc qs p
+    link' acc qs (StarP       :/ p) = link' acc qs p
+    link' acc qs (StarC       :/ p) = link' acc qs p
+    link' acc qs (StarF       :/ p) = link' acc qs p
 
 matchUrl :: M.Map T.Text [T.Text] -- ^ Query string Parameters 
          -> M.Map T.Text [T.Text] -- ^ Request body parameters 
@@ -114,6 +133,11 @@ matchUrl q p c f xs     (File x      :/ ps) h
 matchUrl q p c f xs     (FileOpt x   :/ ps) h 
    | (val:vals) <- M.findWithDefault [] x f = matchUrl q p c (M.adjust (const vals) x f) xs ps (h $ Just val)
    | otherwise                              = matchUrl q p c f xs ps (h Nothing) 
+matchUrl q p c f xs     (StarQ       :/ ps) h = matchUrl q p c f xs ps (h $ M.map (catMaybes . map parse) q)
+matchUrl q p c f xs     (StarP       :/ ps) h = matchUrl q p c f xs ps (h $ M.map (catMaybes . map parse) p)
+matchUrl q p c f xs     (StarC       :/ ps) h = matchUrl q p c f xs ps (h $ M.map (catMaybes . map parse) c)
+matchUrl q p c f xs     (StarF       :/ ps) h = matchUrl q p c f xs ps (h $ f)
 matchUrl _ _ _ _ []     (Empty           ) h = Just h 
-matchUrl _ _ _ _ _      _                  _ = Nothing
+matchUrl _ _ _ _ _      (Empty           ) _ = Nothing
+matchUrl _ _ _ _ []     _                  _ = Nothing
 
