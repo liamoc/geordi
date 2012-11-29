@@ -11,6 +11,6 @@ module Geordi.TableBuilder ( -- * The 'TableBuilder' Type
                            , request
                              -- * Running the builder
                            , buildTable
-                           , buildApplication  ) where
+                           ) where
 
 import Geordi.TableBuilder.Internal                           

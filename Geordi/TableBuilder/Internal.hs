@@ -4,9 +4,6 @@ module Geordi.TableBuilder.Internal where
 import Geordi.HandlerTable
 import Geordi.UrlPattern
 import Geordi.Handler
-import Geordi.FileBackend
-
-import Network.Wai
 
 import Control.Arrow
 import Control.Monad.Reader 
@@ -78,5 +75,3 @@ buildTable (TableBuilder x) = runWriter
                             . flip runReaderT (Generalise nil , Generalise nil ) 
                             $ x
 
-buildApplication :: FileBackend f -> TableBuilder '[] '[] f () -> Application
-buildApplication b = flip asApplication b . snd . buildTable

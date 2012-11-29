@@ -11,7 +11,7 @@ import Geordi.HandlerTable
 import Geordi.Handler
 import Geordi.TableBuilder
 import Geordi.FileBackend
-
+import Geordi.TableBuilder.Wai
 import Network.Wai.Handler.Warp
 
 geordi :: Int -> TableBuilder '[] '[] FilePath () ->  IO ()

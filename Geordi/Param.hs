@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Geordi.Param ( Param (..) ) where
-import qualified Data.Text as T
+import qualified Data.Text.Lazy as T
 
 readMay :: Read a => String -> Maybe a
 readMay s = case [x | (x,t) <- reads s, ("","") <- lex t] of

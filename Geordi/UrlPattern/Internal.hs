@@ -1,8 +1,7 @@
 {-# LANGUAGE GADTs, KindSignatures, DataKinds, TypeOperators, OverloadedStrings, RankNTypes, PatternGuards, TupleSections #-}
 module Geordi.UrlPattern.Internal where
 
-import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy as T
 import Data.List
 import qualified Data.Map as M
 import Geordi.FileInfo
@@ -82,7 +81,7 @@ linkUrl = link' [] []
     link' acc qs Empty             = let ls = ( "/" : intersperse "/" (reverse acc)) 
                                            ++ if qs == [] then [] 
                                               else "?" : intersperse "&" (concatMap (uncurry $ \a b -> [a,"=",b] ) $ reverse qs)
-                                      in TL.toStrict (TL.fromChunks ls)
+                                      in (T.concat ls)
     link' acc qs (Str s      :/ p) = link' (s : acc) qs p
     link' acc qs (Param      :/ p) = \v -> link' (render v : acc) qs p
     link' acc qs (Query x    :/ p) = \v -> link' acc ((x, render v):qs) p
