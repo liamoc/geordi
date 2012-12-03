@@ -47,24 +47,24 @@ cookie         :: Param p => T.Text ->  UrlPattern m f '[CookieParam p]
 cookie         = (:/ Empty) . Cookie
 param          :: Param p => UrlPattern m f '[UrlParam p]
 param          = (Param :/ Empty) 
-file           :: T.Text -> UrlPattern POST f '[FileParam (FileInfo f)]
-file           = (:/ Empty) . File
+upload         :: T.Text -> UrlPattern POST f '[FileParam (FileInfo f)]
+upload         = (:/ Empty) . File
 optionalQuery  :: Param p => T.Text ->  UrlPattern m f '[QueryParam (Maybe p)]
 optionalQuery  = (:/ Empty) . QueryOpt
 optionalCookie :: Param p => T.Text -> UrlPattern m f '[CookieParam (Maybe p)]
 optionalCookie = (:/ Empty) . CookieOpt
 optionalPosted :: Param p => T.Text -> UrlPattern POST f '[PostParam (Maybe p)]
 optionalPosted = (:/ Empty) . PostedOpt
-optionalFile   :: T.Text -> UrlPattern POST f '[FileParam (Maybe (FileInfo f))]
-optionalFile   = (:/ Empty) . FileOpt
+optionalUpload :: T.Text -> UrlPattern POST f '[FileParam (Maybe (FileInfo f))]
+optionalUpload = (:/ Empty) . FileOpt
 allQuery       :: Param a => UrlPattern m f '[QueryParam (M.Map T.Text [a])]
 allQuery       = (:/ Empty) $ StarQ
 allCookie      :: Param a => UrlPattern m f '[CookieParam (M.Map T.Text [a])]
 allCookie      = (:/ Empty) $ StarC
 allPosted      :: Param a => UrlPattern POST f '[PostParam (M.Map T.Text [a])]
 allPosted      = (:/ Empty) $ StarP
-allFile        :: UrlPattern POST f '[FileParam (M.Map T.Text [FileInfo f])]
-allFile        = (:/ Empty) $ StarF
+allUpload      :: UrlPattern POST f '[FileParam (M.Map T.Text [FileInfo f])]
+allUpload      = (:/ Empty) $ StarF
 splat          :: Param a => UrlPattern m f '[UrlParam [a]]
 splat          = (:/ Empty) $ Star
 

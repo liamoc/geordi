@@ -40,8 +40,8 @@ data Cookie :: CookieExpiration -> * where
 (|>) :: a -> (a -> b) -> b
 (|>) = flip ($)
 
-cookie :: Cookie e -> Response -> Response
-cookie c r = r { responseCookies = ExI c : responseCookies r }
+setCookie :: Cookie e -> Response -> Response
+setCookie c r = r { responseCookies = ExI c : responseCookies r }
 
 header :: H.HeaderName -> T.Text -> Response -> Response
 header k v r = r { responseHeaders = M.insert k v $ responseHeaders r }

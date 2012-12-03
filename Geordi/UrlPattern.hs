@@ -21,9 +21,9 @@ module Geordi.UrlPattern ( -- * The 'UrlPattern' monoid
                          , optionalCookie
                          , allCookie
                            -- * File upload matchers
-                         , file
-                         , optionalFile
-                         , allFile
+                         , upload
+                         , optionalUpload
+                         , allUpload
                            -- * Type indices and families
                          , module Geordi.UrlPattern.Types
                            -- * Matching and linking
