@@ -1,3 +1,7 @@
 /dist/
 *.swo
 *.swn
+*.swp
+*.hi
+*.o
+/test
