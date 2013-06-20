@@ -12,6 +12,11 @@ class Param a where
   render :: a -> T.Text
   parse  :: T.Text -> Maybe a
 
+
+instance Param T.Text where
+  render = id
+  parse = Just
+
 instance Param Int where
   render = T.pack . show
   parse  = readMay . T.unpack 
