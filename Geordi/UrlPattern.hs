@@ -29,6 +29,11 @@ module Geordi.UrlPattern ( -- * The 'UrlPattern' monoid
                            -- * Matching and linking
                          , linkUrl
                          , matchUrl
+                           -- * Some useful type-level proofs
+                         , typesProof
+                         , collectProof
+                         , linkWitness
+                         , typesWitness
                          ) where
 
 import Geordi.UrlPattern.Internal

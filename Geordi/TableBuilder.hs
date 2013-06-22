@@ -1,9 +1,10 @@
 module Geordi.TableBuilder ( -- * The 'TableBuilder' Type
-                             TableBuilder 
+                             TableBuilder
                              -- * Prefixes and Suffixes
                            , prefix
                            , suffix
-                             -- * Adding handlers 
+                           , monadSuffix
+                             -- * Adding handlers
                            , add
                            , handle
                            , get
@@ -13,4 +14,4 @@ module Geordi.TableBuilder ( -- * The 'TableBuilder' Type
                            , buildTable
                            ) where
 
-import Geordi.TableBuilder.Internal                           
+import Geordi.TableBuilder.Internal

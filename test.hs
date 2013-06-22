@@ -1,33 +1,69 @@
-{-# LANGUAGE QuasiQuotes, GADTs, ScopedTypeVariables, RecursiveDo, OverloadedStrings #-}
+{-# LANGUAGE TypeOperators, QuasiQuotes, GADTs, ScopedTypeVariables, RecursiveDo, OverloadedStrings #-}
 
 import Geordi
 import Network.Wai.Handler.Warp
 import Debug.Trace
 import Data.Monoid
 import Network.HTTP.Types.Status
+import Network.HTTP.Types.Header
 import Control.Monad.Trans
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.Text.Lazy as T
 import qualified Data.Map  as M
-import Text.Blaze.Html5
-import qualified Text.Blaze.Html5.Attributes as A
 import Text.Blaze.Renderer.Utf8
+import Text.Hamlet
+import Control.Concurrent.STM
+import SessionDB as Session
+import qualified Control.Monad.State as S
 
-page = docTypeHtml $ body $ do
-         form ! A.action "/foo" ! A.method "post" $ do
-           input ! A.name "inpoo" ! A.value "default"
-           input ! A.type_ "submit" ! A.value "Foo"
+pageWithSession logout x = [shamlet|
+   !!!
+   <body>
+     <form action="#{link logout}" method="post">
+       Count: #{x}
+       <input type="submit" value="Logout">
+   |]
+pageWithoutSession login = [shamlet|
+   !!!
+   <body>
+     <form action="#{link login}" method="post">
+       You Have no Session
+       <input type="submit" value="Get one">
+   |]
 
-main = geordi 3000 $ do
-         post (str "foo" // posted "inpoo") $ \ (x :: T.Text) -> do
-           respond $ text x
-                   . setCookie ("fook" := x)
-                   . status ok200
-                   . contentType "text/plain;charset=utf-8"
-         request (splat // cookie "fook") $ \(l :: [String]) (r :: T.Text) -> do
-           respond $ (text $ r `T.append` "foo")
-         request splat $ \(l :: [String]) -> do
-           respond $ builder (renderMarkupBuilder page)
-                   . status ok200
-                   . contentType "text/html; charset=utf-8"
-         return ()
+pageLogout home = [shamlet|
+   !!!
+   <body>
+     You are now logged out
+     <a href="#{link home}">
+       Go back
+   |]
+
+html x = builder (renderMarkupBuilder x)
+       . status ok200
+       . contentType "text/html; charset=utf-8"
+
+redirect' :: T.Text -> Response -> Response
+redirect' x = status found302
+           . header hLocation x
+
+redirect :: Handler m f ts -> Types (LinkSegments ts) :--> (Response -> Response)
+redirect h@(Handler {urlPat = urlPat}) = mapMany (linkWitness urlPat) redirect' (link h)
+
+main = do db <- stmSDB
+          geordi 3000 $ mdo
+            inward <- session db (cookie "session") $ do
+              logout <- post (str "session") $ do
+                endSession
+                respond $ redirect home
+              request (nil) $ do
+                S.modify (+1)
+                (v :: Int) <- S.get
+                respond $ html $ pageWithSession logout v
+            login <- post (str "session") $ do
+              id <- newSession db 0
+              respond $ redirect inward
+                      . setCookie ("session" := T.pack (show id))
+            home <- request nil $
+              respond $ html $ pageWithoutSession login
+            return ()

@@ -1,5 +1,5 @@
 {-# LANGUAGE GADTs, KindSignatures, TypeOperators, DataKinds, PolyKinds, LambdaCase #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving, ScopedTypeVariables, OverloadedStrings #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, Rank2Types, ScopedTypeVariables, OverloadedStrings #-}
 module Geordi.HandlerTable.Internal where
 import qualified Data.Text.Lazy as T
 import Data.Monoid
@@ -10,23 +10,34 @@ import Control.Monad.Trans.Resource
 import Geordi.Util.Exists
 import Geordi.Request
 import Geordi.Response
+import Geordi.UrlPattern
 
-newtype HandlerTable f = HandlerTable [Exists (Handler f)] deriving (Monoid)
+newtype HandlerTable m f = HandlerTable [Exists (Handler m f)] deriving (Monoid)
 
-singleton :: Handler f hs -> HandlerTable f
+monadSuffixTable :: (forall method. UrlPattern method f n)
+                 -> (forall l. Handler m f l -> Handler m2 f (l :++: n))
+                 -> HandlerTable m f -> HandlerTable m2 f
+monadSuffixTable i f (HandlerTable t) = HandlerTable $ map (existsSuffix i f) t
+ where
+   existsSuffix :: (forall method. UrlPattern method f n)
+                -> (forall l. Handler m f l -> Handler m2 f (l :++: n))
+                -> Exists (Handler m f) -> Exists (Handler m2 f)
+   existsSuffix _ f (ExI x) = (ExI $ f x)
+
+singleton :: Handler m f hs -> HandlerTable m f
 singleton = HandlerTable . (:[]) . ExI
 
-runTable :: HandlerTable f -> Request f -> ResourceT IO Response
+runTable :: HandlerTable (HandlerM f) f -> Request f -> ResourceT IO Response
 runTable (HandlerTable x) = go initialResponse x
-  where go :: Response -> [Exists (Handler f)] -> Request f -> ResourceT IO Response
+  where go :: Response -> [Exists (Handler (HandlerM f) f)] -> Request f -> ResourceT IO Response
         go res [] _ = return $ res
-        go res (ExI h : hs ) req 
+        go res (ExI h : hs ) req
            = case matchRequest h req of
                Nothing  -> go res hs req
-               Just act -> second ($ res) <$> runHandlerM act req >>= \case 
+               Just act -> second ($ res) <$> runHandlerM act req >>= \case
                               (Continue , res') -> go res' hs req
-                              (Done     , res') -> return res' 
-        initialResponse = text ( 
+                              (Done     , res') -> return res'
+        initialResponse = text (
                           "Captain Picard to the bridge!\n Captain, we've got a problem with the warp core, or the phase inducers --- or some other damn thing.\n\n"
                         <> "                                                  ______                          \n"
                         <> "                                     ___.--------'------`---------.____           \n"
@@ -41,4 +52,4 @@ runTable (HandlerTable x) = go initialResponse x
                         <> "                   \\________|_.-'                                                \n"
                         <> "                                                                                  \n"
                         <> " (Most likely, the developer hasn't added a `catch-all' 404 handler... yet)       \n"
-                        ) emptyResponse 
+                        ) emptyResponse

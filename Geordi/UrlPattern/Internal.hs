@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, KindSignatures, DataKinds, TypeOperators, OverloadedStrings, RankNTypes, PatternGuards, TupleSections #-}
+{-# LANGUAGE GADTs, ImplicitParams, PolyKinds, KindSignatures, DataKinds, TypeOperators, OverloadedStrings, RankNTypes, PatternGuards, TupleSections #-}
 module Geordi.UrlPattern.Internal where
 
 import qualified Data.Text.Lazy as T
@@ -32,8 +32,83 @@ data UrlSegment :: Method -> * -> SegmentType * -> * where
 infixr 7 :/
 -- Indexed by the type of a handler for that particular UrlPattern
 data UrlPattern :: Method -> * -> [SegmentType *] -> * where
-  Empty :: UrlPattern m f '[] 
+  Empty :: UrlPattern m f '[]
   (:/) :: UrlSegment m f t -> UrlPattern m f ts -> UrlPattern m f (t ': ts)
+
+
+typesProof :: UrlPattern method f n
+           -> UrlPattern method f ps
+           -> Types (ps :++: n)
+              :==:
+              (Types ps :++: Types n)
+typesProof n Empty = Refl
+typesProof n (p :/ ps) | Refl <- typesProof n ps
+ = case p of
+    Param {} -> Refl
+    Query {} -> Refl
+    Posted {} -> Refl
+    Cookie {} -> Refl
+    QueryOpt {} -> Refl
+    PostedOpt {} -> Refl
+    CookieOpt {} -> Refl
+    File {} -> Refl
+    FileOpt {} -> Refl
+    Str {} -> Refl
+    Star {} -> Refl
+    StarQ {} -> Refl
+    StarP {} -> Refl
+    StarC {} -> Refl
+    StarF {} -> Refl
+
+
+linkWitness :: UrlPattern method f n -> ListWitness (Types (LinkSegments n))
+linkWitness Empty = EmptyW
+linkWitness (x :/ xs)
+ = let f = case x of
+             Param {} -> ConsW
+             Query {} -> ConsW
+             Posted {} -> id
+             Cookie {} -> id
+             QueryOpt {} -> ConsW
+             PostedOpt {} -> id
+             CookieOpt {} -> id
+             File {} -> id
+             FileOpt {} -> id
+             Star {} -> ConsW
+             StarQ {} -> ConsW
+             StarP {} -> id
+             StarC {} -> id
+             StarF {} -> id
+             Str {} -> id
+   in f $ linkWitness xs
+typesWitness :: UrlPattern method f n -> ListWitness (Types n)
+typesWitness Empty = EmptyW
+typesWitness (x :/ xs)
+ = let f = case x of
+             Param {} -> ConsW
+             Query {} -> ConsW
+             Posted {} -> ConsW
+             Cookie {} -> ConsW
+             QueryOpt {} -> ConsW
+             PostedOpt {} -> ConsW
+             CookieOpt {} -> ConsW
+             File {} -> ConsW
+             FileOpt {} -> ConsW
+             Star {} -> ConsW
+             StarQ {} -> ConsW
+             StarP {} -> ConsW
+             StarC {} -> ConsW
+             StarF {} -> ConsW
+             Str {} -> id
+   in f $ typesWitness xs
+
+collectProof :: x
+             -> ListWitness ps
+             -> ListWitness n
+             -> ((ps :++: n) :--> x) :==: (ps :--> (n :--> x))
+collectProof i EmptyW p  = Refl
+collectProof i (ConsW xs) p | Refl <- collectProof i xs p = Refl
+
 
 nil            :: UrlPattern m f '[]
 nil            = Empty
@@ -46,7 +121,7 @@ posted         = (:/ Empty) . Posted
 cookie         :: Param p => T.Text ->  UrlPattern m f '[CookieParam p]
 cookie         = (:/ Empty) . Cookie
 param          :: Param p => UrlPattern m f '[UrlParam p]
-param          = (Param :/ Empty) 
+param          = (Param :/ Empty)
 upload         :: T.Text -> UrlPattern POST f '[FileParam (FileInfo f)]
 upload         = (:/ Empty) . File
 optionalQuery  :: Param p => T.Text ->  UrlPattern m f '[QueryParam (Maybe p)]
@@ -76,20 +151,20 @@ Empty     // y = y
 
 linkUrl :: UrlPattern m f ts -> Types (LinkSegments ts) :--> T.Text
 linkUrl = link' [] []
-  where 
+  where
     link' :: [T.Text] -> [(T.Text, T.Text)] -> UrlPattern m f ts -> Types (LinkSegments ts) :--> T.Text
-    link' acc qs Empty             = let ls = ( "/" : intersperse "/" (reverse acc)) 
-                                           ++ if qs == [] then [] 
+    link' acc qs Empty             = let ls = ( "/" : intersperse "/" (reverse acc))
+                                           ++ if qs == [] then []
                                               else "?" : intersperse "&" (concatMap (uncurry $ \a b -> [a,"=",b] ) $ reverse qs)
                                       in (T.concat ls)
     link' acc qs (Str s      :/ p) = link' (s : acc) qs p
     link' acc qs (Param      :/ p) = \v -> link' (render v : acc) qs p
     link' acc qs (Query x    :/ p) = \v -> link' acc ((x, render v):qs) p
-    link' acc qs (QueryOpt x :/ p) = maybe (link' acc qs p) 
-                                           (\v -> link' acc ((x, render v):qs) p) 
-    link' acc qs (StarQ :/ p) = \m -> let stuff = concatMap (uncurry $ \a b -> map ((a,) . render) b) $ M.toList m 
-                                       in link' acc (reverse stuff ++ qs) p 
-    link' acc qs (Star  :/ p) = \m -> link' (reverse (map render m) ++ acc) qs p                                   
+    link' acc qs (QueryOpt x :/ p) = maybe (link' acc qs p)
+                                           (\v -> link' acc ((x, render v):qs) p)
+    link' acc qs (StarQ :/ p) = \m -> let stuff = concatMap (uncurry $ \a b -> map ((a,) . render) b) $ M.toList m
+                                       in link' acc (reverse stuff ++ qs) p
+    link' acc qs (Star  :/ p) = \m -> link' (reverse (map render m) ++ acc) qs p
     link' acc qs (Cookie _    :/ p) = link' acc qs  p
     link' acc qs (Posted _    :/ p) = link' acc qs  p
     link' acc qs (PostedOpt _ :/ p) = link' acc qs  p
@@ -101,7 +176,7 @@ linkUrl = link' [] []
     link' acc qs (StarF       :/ p) = link' acc qs p
 
 
--- | Boolean matching predicate. Note that this only checks the actual path component of the URL pattern. 
+-- | Boolean matching predicate. Note that this only checks the actual path component of the URL pattern.
 --   Query string and other parameters are ignored.
 matches :: UrlPattern m f ts -- ^ Pattern to match
         -> [T.Text]          -- ^ Url pieces
@@ -113,8 +188,8 @@ matches (_     :/ ps) ys     = ps `matches` ys
 matches  Empty        []     = True
 matches  Empty        _      = False
 
-matchUrl :: M.Map T.Text [T.Text] -- ^ Query string Parameters 
-         -> M.Map T.Text [T.Text] -- ^ Request body parameters 
+matchUrl :: M.Map T.Text [T.Text] -- ^ Query string Parameters
+         -> M.Map T.Text [T.Text] -- ^ Request body parameters
          -> M.Map T.Text [T.Text] -- ^ Cookie parameters
          -> M.Map T.Text [FileInfo f] -- ^ Uploaded files
          -> [T.Text] -- ^ URL pieces (before query string)
@@ -123,38 +198,38 @@ matchUrl :: M.Map T.Text [T.Text] -- ^ Query string Parameters
          -> Maybe a -- ^ Resultant value (iff the pattern matches)
 matchUrl q p c f (x:xs) (Str x'      :/ ps) h = if x == x' then matchUrl q p c f xs ps h
                                                            else Nothing
-matchUrl q p c f (x:xs) (Param       :/ ps) h = parse x >>= matchUrl q p c f xs ps . h 
-matchUrl q p c f xs     (Query x     :/ ps) h 
-   | (val:vals) <- M.findWithDefault [] x q = parse val >>= matchUrl (M.adjust (const vals) x q) p c f xs ps . h 
+matchUrl q p c f (x:xs) (Param       :/ ps) h = parse x >>= matchUrl q p c f xs ps . h
+matchUrl q p c f xs     (Query x     :/ ps) h
+   | (val:vals) <- M.findWithDefault [] x q = parse val >>= matchUrl (M.adjust (const vals) x q) p c f xs ps . h
    | otherwise                              = Nothing
-matchUrl q p c f xs     (QueryOpt x  :/ ps) h 
-   | (val:vals) <- M.findWithDefault [] x q = parse val >>= matchUrl (M.adjust (const vals) x q) p c f xs ps . h . Just 
+matchUrl q p c f xs     (QueryOpt x  :/ ps) h
+   | (val:vals) <- M.findWithDefault [] x q = parse val >>= matchUrl (M.adjust (const vals) x q) p c f xs ps . h . Just
    | otherwise                              = matchUrl q p c f xs ps (h Nothing)
-matchUrl q p c f xs     (Posted x    :/ ps) h 
-   | (val:vals) <- M.findWithDefault [] x p = parse val >>= matchUrl q (M.adjust (const vals) x p) c f xs ps . h 
+matchUrl q p c f xs     (Posted x    :/ ps) h
+   | (val:vals) <- M.findWithDefault [] x p = parse val >>= matchUrl q (M.adjust (const vals) x p) c f xs ps . h
    | otherwise                              = Nothing
-matchUrl q p c f xs     (PostedOpt x :/ ps) h 
+matchUrl q p c f xs     (PostedOpt x :/ ps) h
    | (val:vals) <- M.findWithDefault [] x p = parse val >>= matchUrl q (M.adjust (const vals) x p) c f xs ps . h . Just
-   | otherwise                              = matchUrl q p c f xs ps (h Nothing) 
-matchUrl q p c f xs     (Cookie x    :/ ps) h 
-   | (val:vals) <- M.findWithDefault [] x c = parse val >>= matchUrl q p (M.adjust (const vals) x c) f xs ps . h 
+   | otherwise                              = matchUrl q p c f xs ps (h Nothing)
+matchUrl q p c f xs     (Cookie x    :/ ps) h
+   | (val:vals) <- M.findWithDefault [] x c = parse val >>= matchUrl q p (M.adjust (const vals) x c) f xs ps . h
    | otherwise                              = Nothing
-matchUrl q p c f xs     (CookieOpt x :/ ps) h 
+matchUrl q p c f xs     (CookieOpt x :/ ps) h
    | (val:vals) <- M.findWithDefault [] x c = parse val >>= matchUrl q p (M.adjust (const vals) x c) f xs ps . h . Just
-   | otherwise                              = matchUrl q p c f xs ps (h Nothing) 
-matchUrl q p c f xs     (File x      :/ ps) h 
+   | otherwise                              = matchUrl q p c f xs ps (h Nothing)
+matchUrl q p c f xs     (File x      :/ ps) h
    | (val:vals) <- M.findWithDefault [] x f = matchUrl q p c (M.adjust (const vals) x f) xs ps (h val)
    | otherwise                              = Nothing
-matchUrl q p c f xs     (FileOpt x   :/ ps) h 
+matchUrl q p c f xs     (FileOpt x   :/ ps) h
    | (val:vals) <- M.findWithDefault [] x f = matchUrl q p c (M.adjust (const vals) x f) xs ps (h $ Just val)
-   | otherwise                              = matchUrl q p c f xs ps (h Nothing) 
+   | otherwise                              = matchUrl q p c f xs ps (h Nothing)
 matchUrl q p c f xs     (StarQ       :/ ps) h = matchUrl q p c f xs ps (h $ M.map (catMaybes . map parse) q)
 matchUrl q p c f xs     (StarP       :/ ps) h = matchUrl q p c f xs ps (h $ M.map (catMaybes . map parse) p)
 matchUrl q p c f xs     (StarC       :/ ps) h = matchUrl q p c f xs ps (h $ M.map (catMaybes . map parse) c)
 matchUrl q p c f xs     (StarF       :/ ps) h = matchUrl q p c f xs ps (h $ f)
 matchUrl q p c f xs     (Star        :/ ps) h = do (glob,rest) <- find (matches ps . snd) (inits xs `zip` tails xs)
                                                    matchUrl q p c f rest ps (h $ catMaybes $ map parse glob)
-matchUrl _ _ _ _ []     (Empty           ) h = Just h 
+matchUrl _ _ _ _ []     (Empty           ) h = Just h
 matchUrl _ _ _ _ _      (Empty           ) _ = Nothing
 matchUrl _ _ _ _ []     _                  _ = Nothing
 
